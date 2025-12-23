@@ -3,13 +3,13 @@ import time
 import random
 from datetime import datetime
 import psycopg2
-from psycopg2.extras import RealDictCursor
 
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "postgres"),
     "database": os.getenv("DB_NAME", "weather_db"),
     "user": os.getenv("DB_USER", "weather_user"),
-    "password": os.getenv("DB_PASSWORD", "weather_pass")
+    "password": os.getenv("DB_PASSWORD", "weather_pass"),
+    "port": 5432
 }
 
 def generate_weather_data():
@@ -23,7 +23,7 @@ def generate_weather_data():
 
     pressure = round(755 + random.uniform(-10, 10), 2)
     wind_speed = round(random.uniform(0, 15), 2)
-    if random() < 0.1:
+    if random.random() < 0.1:
         wind_speed = round(random.uniform(10, 25), 2)
 
     return {
@@ -34,7 +34,6 @@ def generate_weather_data():
     }
 
 def save_to_db(data):
-        
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cursor = conn.cursor()
@@ -50,12 +49,11 @@ def save_to_db(data):
             data["humidity"],
             data["pressure"],
             data["wind_speed"]
-         ))
+        ))
         
         conn.commit()
         cursor.close()
         conn.close()
-        
         
         print(f"[{datetime.now().strftime('%H:%M:%S')}] данные записаны: "
               f"temp={data['temperature']}°C, "
@@ -66,14 +64,28 @@ def save_to_db(data):
     except Exception as e: 
         print(f"ошибка записи в дб: {e}")
 
-
 def main():
-    print(f"connecting DB")
-    time.sleep(5)
+    print("старт генератора")
+    
+
+    for i in range(10):
+        try:
+            conn = psycopg2.connect(**DB_CONFIG)
+            conn.close()
+            print("БД доступна")
+            break
+        except:
+            print(f"ожидание БД... {i+1}")
+            time.sleep(2)
     
     while True:
         weather_data = generate_weather_data()
         save_to_db(weather_data)
         time.sleep(2)
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"критическая ошибка: {e}")
+        time.sleep(5)
