@@ -1,8 +1,14 @@
+version: '3.8'
+
 networks:
-  weather-net:
+  app-net:
     driver: bridge
 
-services: 
+volumes:
+  weather_postgres_data:
+  redash_postgres_data:
+
+services:
   postgres:
     image: postgres:15-alpine
     container_name: weather-postgres
@@ -11,18 +17,18 @@ services:
       POSTGRES_USER: weather_user
       POSTGRES_PASSWORD: weather_pass
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - weather_postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
     networks:
-      - weather-net
+      - app-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U weather_user -d weather_db"]
       interval: 10s
       timeout: 5s
       retries: 5
-      
+
   generator:
     build: ./generator
     container_name: weather-generator
@@ -34,9 +40,55 @@ services:
       DB_NAME: weather_db
       DB_USER: weather_user
       DB_PASSWORD: weather_pass
+      PYTHONUNBUFFERED: 1
     networks:
-      - weather-net
-    restart: always
+      - app-net
+    restart: unless-stopped
 
-volumes:
-  postgres_data:
+  redash-postgres:
+    image: postgres:13-alpine
+    container_name: redash-postgres
+    environment:
+      POSTGRES_PASSWORD: redash
+      POSTGRES_USER: postgres
+      POSTGRES_DB: redash
+    volumes:
+      - redash_postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-net
+
+  redash-redis:
+    image: redis:7-alpine
+    container_name: redash-redis
+    networks:
+      - app-net
+
+  redash-server:
+    image: redash/redash:latest
+    container_name: redash-server
+    depends_on:
+      - redash-postgres
+      - redash-redis
+    environment:
+      REDASH_DATABASE_URL: postgresql://postgres:redash@redash-postgres/redash
+      REDASH_REDIS_URL: redis://redash-redis:6379/0
+      REDASH_COOKIE_SECRET: very_secret_key_change_me
+      REDASH_WEB_WORKERS: 4
+    ports:
+      - "5000:5000"
+    networks:
+      - app-net
+
+  redash-worker:
+    image: redash/redash:latest
+    container_name: redash-worker
+    command: scheduler
+    depends_on:
+      - redash-postgres
+      - redash-redis
+    environment:
+      REDASH_DATABASE_URL: postgresql://postgres:redash@redash-postgres/redash
+      REDASH_REDIS_URL: redis://redash-redis:6379/0
+      REDASH_COOKIE_SECRET: very_secret_key_change_me
+    networks:
+      - app-net
